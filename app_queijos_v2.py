@@ -3,32 +3,44 @@ import datetime
 import gspread
 from google.oauth2.service_account import Credentials
 import traceback
+import os
 
 # ========================================
-# Conexão com Google Sheets (via arquivo local ou st.secrets)
+# Conexão com Google Sheets (via st.secrets ou arquivo local)
 # ========================================
 def conectar_planilha():
+    """
+    Tenta primeiro usar st.secrets['gcp_service_account'] (deploy no Streamlit Cloud).
+    Se não existir, faz fallback para arquivo JSON local (apenas para desenvolvimento).
+    Retorna: (planilha, aba) ou (None, None) em caso de erro.
+    """
     try:
-        try:
-            # Primeiro tenta com st.secrets (deploy online)
-           service_info = st.secrets["gcp_service_account"]
-            credenciais = Credentials.from_service_account_info(
+        # Tentar usar credenciais do Streamlit Secrets
+        service_info = st.secrets.get("gcp_service_account")
+        if service_info:
+            creds = Credentials.from_service_account_info(
                 service_info,
                 scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
             )
-        except Exception:
-            # Local: usa caminho do arquivo JSON
+        else:
+            # Fallback local: caminho do JSON (apenas para dev local)
             arquivo_credenciais = r"C:\Users\User\Desktop\Códigos\vendasqueijos-54055e51b35f.json"
-            credenciais = Credentials.from_service_account_file(
+            if not os.path.exists(arquivo_credenciais):
+                st.error("Credenciais não encontradas: coloque o JSON local nesse caminho ou configure st.secrets['gcp_service_account'].")
+                return None, None
+            creds = Credentials.from_service_account_file(
                 arquivo_credenciais,
                 scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
             )
-        cliente = gspread.authorize(credenciais)
+
+        cliente = gspread.authorize(creds)
         planilha = cliente.open_by_key("1zC83wcNXDQjipQhdH9f25RFxzzm69RTV96WwWHy0QgU")
         aba = planilha.sheet1
         return planilha, aba
+
     except Exception as e:
         st.error(f"Erro ao conectar com Google Sheets: {e}")
+        st.code(traceback.format_exc())
         return None, None
 
 # ========================================
@@ -49,7 +61,11 @@ def salvar_pedido_google(pedido):
                 "NÃO"
             ]
             aba.append_row(linha)
-            st.toast("✅ Pedido salvo no Google Sheets com sucesso!", icon="📄")
+            # st.toast às vezes não aparece em todas as versões; usamos success como fallback
+            try:
+                st.toast("✅ Pedido salvo no Google Sheets com sucesso!", icon="📄")
+            except Exception:
+                st.success("✅ Pedido salvo no Google Sheets com sucesso!")
         except Exception as e:
             st.error(f"Erro ao salvar no Google Sheets: {e}")
             st.code(traceback.format_exc())
@@ -63,14 +79,20 @@ def atualizar_status_google(pedido_id, campo, valor):
         for i, linha in enumerate(dados, start=2):
             if str(linha.get("id")) == str(pedido_id):
                 colunas = list(linha.keys())
-                if campo.lower() in colunas:
-                    coluna_index = colunas.index(campo.lower()) + 1
+                # procura coluna pelo nome (em lower)
+                lower_cols = [c.lower() for c in colunas]
+                if campo.lower() in lower_cols:
+                    coluna_index = lower_cols.index(campo.lower()) + 1
                     aba.update_cell(i, coluna_index, valor)
-                    st.toast(f"📄 Atualizado '{campo}' para '{valor}' (ID {pedido_id})")
+                    try:
+                        st.toast(f"📄 Atualizado '{campo}' para '{valor}' (ID {pedido_id})")
+                    except Exception:
+                        st.success(f"📄 Atualizado '{campo}' para '{valor}' (ID {pedido_id})")
                     return
         st.warning(f"⚠️ Pedido ID {pedido_id} não encontrado.")
     except Exception as e:
         st.error(f"Erro ao atualizar {campo}: {e}")
+        st.code(traceback.format_exc())
 
 def registrar_receita_google(pedido):
     planilha, _ = conectar_planilha()
@@ -86,9 +108,13 @@ def registrar_receita_google(pedido):
         data = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         linha = [pedido.get("id", ""), pedido.get("cliente", ""), pedido.get("valor", ""), data]
         aba_receitas.append_row(linha)
-        st.toast(f"💰 Receita registrada (Pedido {pedido.get('id', '?')})", icon="💵")
+        try:
+            st.toast(f"💰 Receita registrada (Pedido {pedido.get('id', '?')})", icon="💵")
+        except Exception:
+            st.success(f"💰 Receita registrada (Pedido {pedido.get('id', '?')})")
     except Exception as e:
         st.error(f"Erro ao registrar receita: {e}")
+        st.code(traceback.format_exc())
 
 def registrar_custo_google(descricao, valor, categoria):
     planilha, _ = conectar_planilha()
@@ -103,9 +129,13 @@ def registrar_custo_google(descricao, valor, categoria):
 
         data = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         aba_custos.append_row([descricao, valor, categoria, data])
-        st.toast("📉 Custo registrado com sucesso!", icon="📊")
+        try:
+            st.toast("📉 Custo registrado com sucesso!", icon="📊")
+        except Exception:
+            st.success("📉 Custo registrado com sucesso!")
     except Exception as e:
         st.error(f"Erro ao registrar custo: {e}")
+        st.code(traceback.format_exc())
 
 # ========================================
 # Configuração inicial
@@ -151,7 +181,6 @@ def registrar_pedido_salvar(p):
 def pagina_inicio():
     st.title("🧀 Gestão de Pedidos - Queijos Borges")
     st.markdown("---")
-
     st.markdown("### Escolha uma ação:")
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -164,20 +193,19 @@ def pagina_inicio():
     if st.button("💸 Registrar Custo", use_container_width=True):
         st.session_state.pagina = "custo"; st.rerun()
     if st.button("📋 Ver Pedidos", use_container_width=True):
-            st.session_state.pagina = "lista"; st.rerun()    
+        st.session_state.pagina = "lista"; st.rerun()
 
 def pagina_pedido():
     st.header("🧾 Novo Pedido")
     with st.form("form_pedido", clear_on_submit=True):
         cliente = st.text_input("Cliente", key="cliente_input")
         produto = st.selectbox(
-    "Produto",
-    ["🧀 Queijo", "🍯 Doce de Leite"],
-    index=None,
-    placeholder="Selecione o produto...",
-    key="produto_input"
-)
-
+            "Produto",
+            ["🧀 Queijo", "🍯 Doce de Leite"],
+            index=None,
+            placeholder="Selecione o produto...",
+            key="produto_input"
+        )
         quantidade = st.number_input("Quantidade", min_value=1, step=1, key="quantidade_input")
         valor = st.number_input("Valor (R$)", min_value=0.0, step=0.5, format="%.2f", key="valor_input")
         enviar = st.form_submit_button("📦 Continuar", use_container_width=True)
@@ -203,10 +231,13 @@ def pagina_pedido():
 
 def carregar_pedidos_google():
     _, aba = conectar_planilha()
-    if not aba: return []
-    try: return aba.get_all_records()
+    if not aba:
+        return []
+    try:
+        return aba.get_all_records()
     except Exception as e:
         st.error(f"Erro ao carregar pedidos: {e}")
+        st.code(traceback.format_exc())
         return []
 
 def pagina_entrega():
@@ -262,6 +293,7 @@ def pagina_custo():
     st.markdown("---")
     if st.button("⬅️ Voltar ao Início", use_container_width=True):
         st.session_state.pagina = "inicio"; st.rerun()
+
 def pagina_lista_pedidos():
     st.header("📋 Lista de Pedidos")
     st.markdown("Visualize e filtre todos os pedidos registrados no sistema.")
@@ -337,4 +369,3 @@ elif st.session_state.pagina == "custo":
     pagina_custo()
 elif st.session_state.pagina == "lista":
     pagina_lista_pedidos()
-
