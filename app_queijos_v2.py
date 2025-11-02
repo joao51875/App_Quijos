@@ -11,7 +11,7 @@ def conectar_planilha():
     try:
         try:
             # Primeiro tenta com st.secrets (deploy online)
-            service_info = st.secrets["google_service_account"]
+           service_info = st.secrets["gcp_service_account"]
             credenciais = Credentials.from_service_account_info(
                 service_info,
                 scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
