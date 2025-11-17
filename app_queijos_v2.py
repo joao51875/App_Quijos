@@ -186,14 +186,21 @@ def pagina_inicio():
 
     if st.button("📝 Registrar Pedido", use_container_width=True, type="primary"):
         st.session_state.pagina = "pedido"; st.rerun()
+
     if st.button("🚚 Registrar Entrega", use_container_width=True):
         st.session_state.pagina = "entrega"; st.rerun()
+
     if st.button("💰 Confirmar Pagamento", use_container_width=True):
         st.session_state.pagina = "pagamento"; st.rerun()
+
     if st.button("💸 Registrar Custo", use_container_width=True):
         st.session_state.pagina = "custo"; st.rerun()
+
     if st.button("📋 Ver Pedidos", use_container_width=True):
         st.session_state.pagina = "lista"; st.rerun()
+
+    if st.button("📊 Dashboard", use_container_width=True):
+        st.session_state.pagina = "dashboard"; st.rerun()
 
 def pagina_pedido():
     st.header("🧾 Novo Pedido")
@@ -355,6 +362,117 @@ def pagina_lista_pedidos():
         st.session_state.pagina = "inicio"; st.rerun()
 
 # ========================================
+# 📊 DASHBOARD
+# ========================================
+import pandas as pd
+import matplotlib.pyplot as plt
+
+def pagina_dashboard():
+    st.title("📊 Dashboard Financeiro")
+    st.divider()
+
+    planilha, _ = conectar_planilha()
+    if not planilha:
+        return
+
+    # ----- Carregar pedidos -----
+    try:
+        aba_pedidos = planilha.sheet1
+        pedidos = aba_pedidos.get_all_records()
+    except:
+        st.error("Erro ao carregar pedidos.")
+        return
+
+    # ----- Carregar receitas -----
+    try:
+        aba_receitas = planilha.worksheet("Receitas")
+        receitas = aba_receitas.get_all_records()
+    except:
+        receitas = []
+
+    # ----- Carregar custos -----
+    try:
+        aba_custos = planilha.worksheet("Custos")
+        custos = aba_custos.get_all_records()
+    except:
+        custos = []
+
+    # ----- Transformar em DataFrame -----
+    df_pedidos = pd.DataFrame(pedidos)
+    df_receitas = pd.DataFrame(receitas)
+    df_custos = pd.DataFrame(custos)
+
+    # Converter datas
+    for df, col in [(df_pedidos, "data_pedido"), (df_receitas, "Data Pagamento"), (df_custos, "Data Registro")]:
+        if col in df:
+            df[col] = pd.to_datetime(df[col], errors="coerce")
+
+    hoje = datetime.date.today()
+    mes = hoje.month
+
+    # -------------------------------
+    # 📌 Indicadores principais
+    # -------------------------------
+
+    # Total de vendas (soma de "valor")
+    total_vendas = df_pedidos["valor"].astype(float).sum() if not df_pedidos.empty else 0
+
+    # Total recebido (Receitas)
+    total_recebido = df_receitas["Valor"].astype(float).sum() if not df_receitas.empty else 0
+
+    # Total de custos
+    total_custos = df_custos["Valor"].astype(float).sum() if not df_custos.empty else 0
+
+    # Lucro
+    lucro = total_recebido - total_custos
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("💰 Total Vendas", f"R$ {total_vendas:,.2f}")
+    col2.metric("💵 Recebido", f"R$ {total_recebido:,.2f}")
+    col3.metric("📉 Custos", f"R$ {total_custos:,.2f}")
+    col4.metric("📈 Lucro Total", f"R$ {lucro:,.2f}")
+
+    st.divider()
+
+    # -------------------------------
+    # 📈 Gráfico de recebimentos por dia
+    # -------------------------------
+    if not df_receitas.empty:
+        df_receitas = df_receitas.dropna(subset=["Data Pagamento"])
+        df_receitas["Data"] = df_receitas["Data Pagamento"].dt.date
+        graf1 = df_receitas.groupby("Data")["Valor"].sum()
+
+        st.markdown("### 💵 Recebimentos por Dia")
+        fig, ax = plt.subplots()
+        ax.plot(graf1.index, graf1.values)
+        ax.set_xlabel("Dia")
+        ax.set_ylabel("Valor (R$)")
+        ax.set_title("Recebimentos Diários")
+        st.pyplot(fig)
+
+    # -------------------------------
+    # 📉 Gráfico de custos por dia
+    # -------------------------------
+    if not df_custos.empty:
+        df_custos = df_custos.dropna(subset=["Data Registro"])
+        df_custos["Data"] = df_custos["Data Registro"].dt.date
+        graf2 = df_custos.groupby("Data")["Valor"].sum()
+
+        st.markdown("### 📉 Custos por Dia")
+        fig2, ax2 = plt.subplots()
+        ax2.plot(graf2.index, graf2.values)
+        ax2.set_xlabel("Dia")
+        ax2.set_ylabel("Valor (R$)")
+        ax2.set_title("Custos Diários")
+        st.pyplot(fig2)
+
+    st.divider()
+    if st.button("⬅️ Voltar ao Início", use_container_width=True):
+        st.session_state.pagina = "inicio"
+        st.rerun()
+
+
+# ========================================
 # Roteamento
 # ========================================
 if st.session_state.pagina == "inicio":
@@ -369,3 +487,5 @@ elif st.session_state.pagina == "custo":
     pagina_custo()
 elif st.session_state.pagina == "lista":
     pagina_lista_pedidos()
+elif st.session_state.pagina == "dashboard":
+    pagina_dashboard()
